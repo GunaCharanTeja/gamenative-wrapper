@@ -1172,19 +1172,40 @@ wrapper_CreateImageView(VkDevice _device,
       create_info.format = get_format_for_bcn(pCreateInfo->format);
    }
 
-   /* If base driver does not support VK_EXT_image_view_min_lod, filter
+   /* If base driver does not support VK_EXT_image_view_min_lod, perform real
+    * hardware-level LOD clamping by shifting baseMipLevel, and filter
     * VkImageViewMinLodCreateInfoEXT out of pNext before calling base driver. */
    VkBaseInStructure local_chain[8];
    uint32_t chain_count = 0;
    bool filter_pnext = false;
+   float min_lod_val = 0.0f;
+   bool has_min_lod = false;
+
    if (!device->physical->base_supported_extensions.EXT_image_view_min_lod && pCreateInfo->pNext) {
       const VkBaseInStructure *node = (const VkBaseInStructure *)pCreateInfo->pNext;
       while (node) {
          if (node->sType == VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT) {
+            const VkImageViewMinLodCreateInfoEXT *min_lod_info =
+               (const VkImageViewMinLodCreateInfoEXT *)node;
+            min_lod_val = min_lod_info->minLod;
+            has_min_lod = true;
             filter_pnext = true;
             break;
          }
          node = node->pNext;
+      }
+   }
+
+   /* Real hardware LOD clamping on Mali:
+    * When minLod >= 1.0f, physically shift baseMipLevel so the hardware texture
+    * unit can never access the lower/unstreamed mips. */
+   if (has_min_lod && min_lod_val >= 1.0f) {
+      uint32_t mip_shift = (uint32_t)min_lod_val;
+      if (create_info.subresourceRange.levelCount == VK_REMAINING_MIP_LEVELS) {
+         create_info.subresourceRange.baseMipLevel += mip_shift;
+      } else if (mip_shift < create_info.subresourceRange.levelCount) {
+         create_info.subresourceRange.baseMipLevel += mip_shift;
+         create_info.subresourceRange.levelCount -= mip_shift;
       }
    }
 
