@@ -95,6 +95,7 @@ struct wrapper_device {
 
    VkBuffer null_buffer;
    VkDeviceMemory null_buffer_memory;
+   VkBufferView null_buffer_view;
    VkImage null_image;
    VkDeviceMemory null_image_memory;
    VkImageView null_image_view;

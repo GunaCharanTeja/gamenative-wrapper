@@ -311,6 +311,15 @@ wrapper_create_null_resources(struct wrapper_device *device)
       dt->UnmapMemory(dev, device->null_buffer_memory);
    }
 
+   VkBufferViewCreateInfo bvci = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+      .buffer = device->null_buffer,
+      .format = VK_FORMAT_R8G8B8A8_UNORM,
+      .offset = 0,
+      .range = VK_WHOLE_SIZE,
+   };
+   dt->CreateBufferView(dev, &bvci, NULL, &device->null_buffer_view);
+
    VkImageCreateInfo ici = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
       .imageType = VK_IMAGE_TYPE_2D, .format = VK_FORMAT_R8G8B8A8_UNORM,
@@ -402,6 +411,16 @@ wrapper_UpdateDescriptorSets(VkDevice _device, uint32_t descriptorWriteCount,
          writes[i].pImageInfo = ii;
          break;
       }
+      case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+      case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER: {
+         VkBufferView *tbv = malloc(sizeof(*tbv) * n);
+         memcpy(tbv, w->pTexelBufferView, sizeof(*tbv) * n);
+         for (uint32_t j = 0; j < n; j++)
+            if (tbv[j] == VK_NULL_HANDLE)
+               tbv[j] = device->null_buffer_view;
+         writes[i].pTexelBufferView = tbv;
+         break;
+      }
       default:
          break;
       }
@@ -415,6 +434,8 @@ wrapper_UpdateDescriptorSets(VkDevice _device, uint32_t descriptorWriteCount,
          free((void *)writes[i].pBufferInfo);
       if (writes[i].pImageInfo != pDescriptorWrites[i].pImageInfo)
          free((void *)writes[i].pImageInfo);
+      if (writes[i].pTexelBufferView != pDescriptorWrites[i].pTexelBufferView)
+         free((void *)writes[i].pTexelBufferView);
    }
    free(writes);
 }
@@ -2860,6 +2881,22 @@ wrapper_DestroyDevice(VkDevice _device, const VkAllocationCallbacks* pAllocator)
    list_for_each_entry_safe(struct vk_queue, queue, &device->vk.queues, link) {
       vk_queue_finish(queue);
       vk_free2(&device->vk.alloc, pAllocator, queue);
+   }
+   if (device->emulate_null_descriptor && device->dispatch_handle != VK_NULL_HANDLE) {
+      if (device->null_buffer_view != VK_NULL_HANDLE)
+         device->dispatch_table.DestroyBufferView(device->dispatch_handle, device->null_buffer_view, pAllocator);
+      if (device->null_buffer != VK_NULL_HANDLE)
+         device->dispatch_table.DestroyBuffer(device->dispatch_handle, device->null_buffer, pAllocator);
+      if (device->null_buffer_memory != VK_NULL_HANDLE)
+         device->dispatch_table.FreeMemory(device->dispatch_handle, device->null_buffer_memory, pAllocator);
+      if (device->null_image_view != VK_NULL_HANDLE)
+         device->dispatch_table.DestroyImageView(device->dispatch_handle, device->null_image_view, pAllocator);
+      if (device->null_image != VK_NULL_HANDLE)
+         device->dispatch_table.DestroyImage(device->dispatch_handle, device->null_image, pAllocator);
+      if (device->null_image_memory != VK_NULL_HANDLE)
+         device->dispatch_table.FreeMemory(device->dispatch_handle, device->null_image_memory, pAllocator);
+      if (device->null_sampler != VK_NULL_HANDLE)
+         device->dispatch_table.DestroySampler(device->dispatch_handle, device->null_sampler, pAllocator);
    }
    if (device->dispatch_handle != VK_NULL_HANDLE) {
       device->dispatch_table.DestroyDevice(device->

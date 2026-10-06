@@ -276,11 +276,14 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          bool is_vkd3d = strstr(engine_name, "vkd3d");
          bool is_d3d = is_dxvk || is_vkd3d;
          pdevice->is_vkd3d = is_vkd3d;
-         if (is_d3d) {
-            WRAPPER_LOG(info, "Faking VK_EXT_robustness2 for engine '%s'", engine_name);
+         if (!pdevice->base_supported_extensions.EXT_robustness2) {
+            WRAPPER_LOG(info, "Exposing and emulating VK_EXT_robustness2 (base driver lacks it)");
             pdevice->vk.supported_extensions.EXT_robustness2 = true;
             supported_features->robustBufferAccess2 = true;
+            supported_features->robustImageAccess2 = true;
             supported_features->nullDescriptor = true;
+         }
+         if (is_d3d) {
             if (is_dxvk && engine_version >= VK_MAKE_VERSION(2, 7, 0)) {
                WRAPPER_LOG(info, "Faking VK_KHR_pipeline_library");
                pdevice->vk.supported_extensions.KHR_pipeline_library = true;
@@ -435,8 +438,7 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
                (VkPhysicalDeviceRobustness2FeaturesEXT *)s;
             r2->robustBufferAccess2 = VK_TRUE;
             r2->nullDescriptor = VK_TRUE;
-            if (pdevice->is_vkd3d)
-               r2->robustImageAccess2 = VK_TRUE;
+            r2->robustImageAccess2 = VK_TRUE;
          }
          if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT) {
             ((VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *)s)->extendedDynamicState = VK_TRUE;
