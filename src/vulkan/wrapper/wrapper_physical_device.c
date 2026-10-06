@@ -671,7 +671,6 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          float_prop->shaderSignedZeroInfNanPreserveFloat32 = false;
          break;
       }
-      }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES:
       {
          VkPhysicalDeviceVulkan12Properties *vk12_prop =
@@ -718,7 +717,6 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          vk13_prop->storageTexelBufferOffsetAlignmentBytes = 1;
          vk13_prop->uniformTexelBufferOffsetAlignmentBytes = 1;
          break;
-      }
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT:
       {
