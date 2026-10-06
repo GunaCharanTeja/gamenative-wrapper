@@ -119,6 +119,13 @@ wrapper_filter_enabled_extensions(const struct wrapper_device *device,
       enable_extensions[(*enable_extension_count)++] =
          "VK_EXT_vertex_attribute_divisor";
    }
+
+   if (device->vk.enabled_extensions.KHR_load_store_op_none &&
+       !device->vk.enabled_extensions.EXT_load_store_op_none &&
+       device->physical->base_supported_extensions.EXT_load_store_op_none) {
+      enable_extensions[(*enable_extension_count)++] =
+         "VK_EXT_load_store_op_none";
+   }
 }
 
 static inline void
@@ -603,6 +610,7 @@ wrapper_emit_diag(struct wrapper_physical_device *pdev,
    D("  extendedDynamicState       : %d\n", pdev->base_supported_features.extendedDynamicState);
    D("  extendedDynamicState2      : %d\n", pdev->base_supported_features.extendedDynamicState2);
    D("  dualSrcBlend               : %d\n", pdev->base_supported_features.dualSrcBlend);
+   D("  vertexStoresAndAtomics     : %d\n", pdev->base_supported_features.vertexPipelineStoresAndAtomics);
    D("  multiDrawIndirect          : %d\n", pdev->base_supported_features.multiDrawIndirect);
    D("  ext EXT_robustness2              : %d\n", pdev->base_supported_extensions.EXT_robustness2);
    D("  ext EXT_vertex_attribute_divisor : %d\n", pdev->base_supported_extensions.EXT_vertex_attribute_divisor);
@@ -746,6 +754,7 @@ if (pdf2 && pdf2->features.f) { \
    DISABLE_FEATURE(shaderClipDistance);
    DISABLE_FEATURE(shaderCullDistance);
    DISABLE_FEATURE(dualSrcBlend);
+   DISABLE_FEATURE(vertexPipelineStoresAndAtomics);
    DISABLE_FEATURE(multiDrawIndirect);
 
 #undef DISABLE_FEATURE
@@ -2243,8 +2252,13 @@ wrapper_CreateShaderModule(VkDevice _device,
    if (WRAPPER_LOG_LEVEL(shader))
       dump_shader_code(create_info.pCode, create_info.codeSize);
    
-   return device->dispatch_table.CreateShaderModule(
+   VkResult result = device->dispatch_table.CreateShaderModule(
       device->dispatch_handle, &create_info, pAllocator, pShaderModule);
+
+   if (create_info.pCode != pCreateInfo->pCode)
+      free((void *)create_info.pCode);
+
+   return result;
 }						   						   
 
 static VkResult

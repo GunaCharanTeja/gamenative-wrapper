@@ -78,6 +78,8 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
    }
 
    exts->KHR_present_wait = exts->KHR_timeline_semaphore;
+   if (exts->EXT_load_store_op_none)
+      exts->KHR_load_store_op_none = true;
 
    return VK_SUCCESS;
 }
@@ -289,6 +291,7 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
                pdevice->vk.supported_extensions.KHR_pipeline_library = true;
             }
             supported_features->dualSrcBlend = true;
+            supported_features->vertexPipelineStoresAndAtomics = true;
             supported_features->multiDrawIndirect = true;
          }
          /* Keep extended_dynamic_state disabled on Mali: ARM's proprietary
@@ -668,13 +671,6 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          float_prop->shaderSignedZeroInfNanPreserveFloat32 = false;
          break;
       }
-      case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES:
-      {
-         VkPhysicalDeviceVulkan11Properties *vk11_prop =
-              (VkPhysicalDeviceVulkan11Properties *)prop;
-         vk11_prop->subgroupSupportedOperations = 0;
-         vk11_prop->subgroupSupportedStages = 0;
-         break;
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES:
       {
@@ -723,13 +719,6 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          vk13_prop->uniformTexelBufferOffsetAlignmentBytes = 1;
          break;
       }
-      case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES:
-      {
-         VkPhysicalDeviceSubgroupProperties *subgroup_prop =
-              (VkPhysicalDeviceSubgroupProperties *)prop;
-         subgroup_prop->supportedOperations = 0;
-         subgroup_prop->supportedStages = 0;
-         break;
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT:
       {
