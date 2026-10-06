@@ -333,10 +333,10 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
        * actually need it). Feature faked in Features2, struct unlinked from the
        * real CreateDevice, entrypoints implemented in wrapper_device.c. */
       {
-         bool is_d3d = strstr(engine_name, "DXVK") || strstr(engine_name, "vkd3d");
-         if (is_d3d && !pdevice->base_supported_extensions.KHR_maintenance5) {
-            WRAPPER_LOG(info, "Faking VK_KHR_maintenance5 (base driver lacks it)");
+         if (!pdevice->base_supported_extensions.KHR_maintenance5) {
+            WRAPPER_LOG(info, "Exposing and emulating VK_KHR_maintenance5 (base driver lacks it)");
             pdevice->vk.supported_extensions.KHR_maintenance5 = true;
+            supported_features->maintenance5 = true;
          }
       }
 
@@ -454,16 +454,14 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
       }
    }
 
-   if (pdevice->driver_properties.driverID == VK_DRIVER_ID_SAMSUNG_PROPRIETARY) {
-      vk_foreach_struct(s, pFeatures->pNext) {
-         if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT &&
-             pdevice->vk.supported_extensions.EXT_dynamic_rendering_unused_attachments)
-            ((VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT *)s)
-               ->dynamicRenderingUnusedAttachments = VK_TRUE;
-         if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES &&
-             pdevice->vk.supported_extensions.KHR_maintenance5)
-            ((VkPhysicalDeviceMaintenance5Features *)s)->maintenance5 = VK_TRUE;
-      }
+   vk_foreach_struct(s, pFeatures->pNext) {
+      if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT &&
+          pdevice->vk.supported_extensions.EXT_dynamic_rendering_unused_attachments)
+         ((VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT *)s)
+            ->dynamicRenderingUnusedAttachments = VK_TRUE;
+      if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES &&
+          pdevice->vk.supported_extensions.KHR_maintenance5)
+         ((VkPhysicalDeviceMaintenance5Features *)s)->maintenance5 = VK_TRUE;
    }
 }
 
