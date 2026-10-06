@@ -672,15 +672,13 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          strcpy(vk12_prop->driverName, "Wrapper driver");
 
          /* Vulkan12Properties folds in the descriptor-indexing limits. */
-         if (is_d3d)
-            BUMP_UAB(vk12_prop, WRAPPER_D3D_BINDLESS_LIMIT);
+         BUMP_UAB(vk12_prop, WRAPPER_D3D_BINDLESS_LIMIT);
          break;
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES:
       {
-         if (is_d3d)
-            BUMP_UAB((VkPhysicalDeviceDescriptorIndexingProperties *)prop,
-                     WRAPPER_D3D_BINDLESS_LIMIT);
+         BUMP_UAB((VkPhysicalDeviceDescriptorIndexingProperties *)prop,
+                  WRAPPER_D3D_BINDLESS_LIMIT);
          break;
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES:
