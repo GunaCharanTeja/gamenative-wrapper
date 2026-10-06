@@ -190,6 +190,12 @@ static void process_pnext_chain(VkBaseInStructure *create_info, struct wrapper_p
              WRAPPER_LOG(info, "Unlinking VkPhysicalDeviceMaintenance5Features from pNext chain");
              unlink_vk_struct(create_info, &current, &prev);
              continue;
+          case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_VIEW_MIN_LOD_FEATURES_EXT:
+             if (pdevice->base_supported_extensions.EXT_image_view_min_lod)
+                break;
+             WRAPPER_LOG(info, "Unlinking VkPhysicalDeviceImageViewMinLodFeaturesEXT from pNext chain");
+             unlink_vk_struct(create_info, &current, &prev);
+             continue;
           case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT:
              if (pdevice->base_supported_extensions.EXT_vertex_attribute_divisor)
                 break;   /* base has EXT natively -- pass through unchanged */
@@ -1164,6 +1170,43 @@ wrapper_CreateImageView(VkDevice _device,
 
    if (is_emulated_bcn(device->physical, pCreateInfo->format)) {
       create_info.format = get_format_for_bcn(pCreateInfo->format);
+   }
+
+   /* If base driver does not support VK_EXT_image_view_min_lod, filter
+    * VkImageViewMinLodCreateInfoEXT out of pNext before calling base driver. */
+   VkBaseInStructure local_chain[8];
+   uint32_t chain_count = 0;
+   bool filter_pnext = false;
+   if (!device->physical->base_supported_extensions.EXT_image_view_min_lod && pCreateInfo->pNext) {
+      const VkBaseInStructure *node = (const VkBaseInStructure *)pCreateInfo->pNext;
+      while (node) {
+         if (node->sType == VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT) {
+            filter_pnext = true;
+            break;
+         }
+         node = node->pNext;
+      }
+   }
+
+   if (filter_pnext) {
+      const VkBaseInStructure *node = (const VkBaseInStructure *)pCreateInfo->pNext;
+      while (node && chain_count < 7) {
+         if (node->sType == VK_STRUCTURE_TYPE_IMAGE_VIEW_MIN_LOD_CREATE_INFO_EXT) {
+            node = node->pNext;
+            continue;
+         }
+         local_chain[chain_count] = *node;
+         if (chain_count > 0)
+            local_chain[chain_count - 1].pNext = (const void *)&local_chain[chain_count];
+         chain_count++;
+         node = node->pNext;
+      }
+      if (chain_count > 0) {
+         local_chain[chain_count - 1].pNext = NULL;
+         create_info.pNext = (const void *)&local_chain[0];
+      } else {
+         create_info.pNext = NULL;
+      }
    }
 
    result = device->dispatch_table.CreateImageView(device->dispatch_handle,

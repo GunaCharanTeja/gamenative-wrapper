@@ -288,11 +288,19 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
                WRAPPER_LOG(info, "Faking VK_KHR_pipeline_library");
                pdevice->vk.supported_extensions.KHR_pipeline_library = true;
             }
-            supported_features->extendedDynamicState = true;
-            supported_features->extendedDynamicState2 = true;
             supported_features->dualSrcBlend = true;
             supported_features->multiDrawIndirect = true;
          }
+         /* Keep extended_dynamic_state disabled on Mali: ARM's proprietary
+          * shader compiler has known bugs with dynamic culling / Early-ZS
+          * that cause black screens. DXVK/VKD3D will use their clean,
+          * battle-tested static pipeline fallback. */
+         WRAPPER_LOG(info, "Disabling VK_EXT_extended_dynamic_state and VK_EXT_extended_dynamic_state2 for Mali stability");
+         pdevice->vk.supported_extensions.EXT_extended_dynamic_state = false;
+         pdevice->vk.supported_extensions.EXT_extended_dynamic_state2 = false;
+         supported_features->extendedDynamicState = false;
+         supported_features->extendedDynamicState2 = false;
+
          /* Spoof both vertex_attribute_divisor extensions as supported. Mali r51
           * exposes KHR (we forward that); r44 exposes neither, so we advertise
           * it purely to get vkd3d past its requirement check. Advertising BOTH
@@ -304,11 +312,6 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          pdevice->vk.supported_extensions.KHR_vertex_attribute_divisor = true;
          WRAPPER_LOG(info, "Disabling VK_EXT_calibrated_timestamps");
          pdevice->vk.supported_extensions.EXT_calibrated_timestamps = false;
-         if (!is_d3d) {
-            WRAPPER_LOG(info, "Disabling VK_EXT_extended_dynamic_state and VK_EXT_extended_dynamic_state2");
-            pdevice->vk.supported_extensions.EXT_extended_dynamic_state = false;
-            pdevice->vk.supported_extensions.EXT_extended_dynamic_state2 = false;
-         }
       }
 
       /* Samsung Xclipse: vkd3d 3.x needs VK_EXT_dynamic_rendering_unused_attachments
@@ -349,6 +352,26 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          if (!pdevice->base_supported_extensions.KHR_push_descriptor) {
             WRAPPER_LOG(info, "Exposing and emulating VK_KHR_push_descriptor (base driver lacks it)");
             pdevice->vk.supported_extensions.KHR_push_descriptor = true;
+         }
+      }
+
+      /* VK_EXT_image_view_min_lod: needed by DXVK and VKD3D for D3D11/D3D12 texture
+       * streaming and LOD clamping. Emulated by stripping the extension struct in
+       * CreateImageView and dropping the feature struct in CreateDevice. */
+      {
+         if (!pdevice->base_supported_extensions.EXT_image_view_min_lod) {
+            WRAPPER_LOG(info, "Exposing and emulating VK_EXT_image_view_min_lod (base driver lacks it)");
+            pdevice->vk.supported_extensions.EXT_image_view_min_lod = true;
+            supported_features->minLod = true;
+         }
+      }
+
+      /* VK_EXT_memory_budget: needed by DXVK and VKD3D to query real heap memory
+       * budgets and prevent OOM crashes on Android. Populated in Properties2. */
+      {
+         if (!pdevice->base_supported_extensions.EXT_memory_budget) {
+            WRAPPER_LOG(info, "Exposing and emulating VK_EXT_memory_budget (base driver lacks it)");
+            pdevice->vk.supported_extensions.EXT_memory_budget = true;
          }
       }
 
@@ -439,12 +462,6 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
             r2->nullDescriptor = VK_TRUE;
             r2->robustImageAccess2 = VK_TRUE;
          }
-         if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT) {
-            ((VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *)s)->extendedDynamicState = VK_TRUE;
-         }
-         if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT) {
-            ((VkPhysicalDeviceExtendedDynamicState2FeaturesEXT *)s)->extendedDynamicState2 = VK_TRUE;
-         }
          if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT) {
             VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vad =
                (VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *)s;
@@ -462,6 +479,9 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
       if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES &&
           pdevice->vk.supported_extensions.KHR_maintenance5)
          ((VkPhysicalDeviceMaintenance5Features *)s)->maintenance5 = VK_TRUE;
+      if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_VIEW_MIN_LOD_FEATURES_EXT &&
+          pdevice->vk.supported_extensions.EXT_image_view_min_lod)
+         ((VkPhysicalDeviceImageViewMinLodFeaturesEXT *)s)->minLod = VK_TRUE;
    }
 }
 
@@ -695,6 +715,46 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
               (VkPhysicalDeviceSubgroupProperties *)prop;
          subgroup_prop->supportedOperations = 0;
          subgroup_prop->supportedStages = 0;
+         break;
+      }
+      case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT:
+      {
+         VkPhysicalDeviceMemoryBudgetPropertiesEXT *budget =
+            (VkPhysicalDeviceMemoryBudgetPropertiesEXT *)prop;
+         VkDeviceSize total_ram = 0;
+         VkDeviceSize avail_ram = 0;
+         FILE *f = fopen("/proc/meminfo", "r");
+         if (f) {
+            char line[128];
+            while (fgets(line, sizeof(line), f)) {
+               unsigned long val = 0;
+               if (sscanf(line, "MemTotal: %lu kB", &val) == 1)
+                  total_ram = (VkDeviceSize)val * 1024;
+               else if (sscanf(line, "MemAvailable: %lu kB", &val) == 1)
+                  avail_ram = (VkDeviceSize)val * 1024;
+            }
+            fclose(f);
+         }
+         if (total_ram == 0) total_ram = 4ULL * 1024 * 1024 * 1024;
+         if (avail_ram == 0) avail_ram = total_ram / 2;
+
+         VkPhysicalDeviceMemoryProperties mem_props;
+         pdevice->dispatch_table.GetPhysicalDeviceMemoryProperties(
+            pdevice->dispatch_handle, &mem_props);
+
+         for (uint32_t i = 0; i < VK_MAX_MEMORY_HEAPS; i++) {
+            if (i < mem_props.memoryHeapCount) {
+               budget->heapBudget[i] = (avail_ram < mem_props.memoryHeaps[i].size)
+                                          ? avail_ram : mem_props.memoryHeaps[i].size;
+               budget->heapUsage[i] = (total_ram > avail_ram)
+                                         ? (total_ram - avail_ram) : 0;
+               if (budget->heapUsage[i] > mem_props.memoryHeaps[i].size)
+                  budget->heapUsage[i] = mem_props.memoryHeaps[i].size / 2;
+            } else {
+               budget->heapBudget[i] = 0;
+               budget->heapUsage[i] = 0;
+            }
+         }
          break;
       }
       default:
