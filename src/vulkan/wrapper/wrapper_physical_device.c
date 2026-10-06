@@ -375,6 +375,17 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          }
       }
 
+      /* VK_EXT_depth_clip_enable: needed by DXVK and VKD3D for Direct3D depth
+       * clipping. Emulated by mapping to hardware depth clamping/clipping and
+       * stripping the feature/pipeline structs. */
+      {
+         if (!pdevice->base_supported_extensions.EXT_depth_clip_enable) {
+            WRAPPER_LOG(info, "Exposing and emulating VK_EXT_depth_clip_enable (base driver lacks it)");
+            pdevice->vk.supported_extensions.EXT_depth_clip_enable = true;
+            supported_features->depthClipEnable = true;
+         }
+      }
+
       char *wrapper_emulate_bcn_env = getenv("WRAPPER_EMULATE_BCN");
 
       if (!wrapper_emulate_bcn_env) 
@@ -482,6 +493,9 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
       if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_VIEW_MIN_LOD_FEATURES_EXT &&
           pdevice->vk.supported_extensions.EXT_image_view_min_lod)
          ((VkPhysicalDeviceImageViewMinLodFeaturesEXT *)s)->minLod = VK_TRUE;
+      if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT &&
+          pdevice->vk.supported_extensions.EXT_depth_clip_enable)
+         ((VkPhysicalDeviceDepthClipEnableFeaturesEXT *)s)->depthClipEnable = VK_TRUE;
    }
 }
 

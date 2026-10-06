@@ -196,6 +196,12 @@ static void process_pnext_chain(VkBaseInStructure *create_info, struct wrapper_p
              WRAPPER_LOG(info, "Unlinking VkPhysicalDeviceImageViewMinLodFeaturesEXT from pNext chain");
              unlink_vk_struct(create_info, &current, &prev);
              continue;
+          case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_ENABLE_FEATURES_EXT:
+             if (pdevice->base_supported_extensions.EXT_depth_clip_enable)
+                break;
+             WRAPPER_LOG(info, "Unlinking VkPhysicalDeviceDepthClipEnableFeaturesEXT from pNext chain");
+             unlink_vk_struct(create_info, &current, &prev);
+             continue;
           case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT:
              if (pdevice->base_supported_extensions.EXT_vertex_attribute_divisor)
                 break;   /* base has EXT natively -- pass through unchanged */
@@ -1708,6 +1714,89 @@ wrapper_DestroyPipelineLayout(VkDevice _device, VkPipelineLayout pipelineLayout,
    }
    device->dispatch_table.DestroyPipelineLayout(device->dispatch_handle,
       pipelineLayout, pAllocator);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateGraphicsPipelines(VkDevice _device,
+                                VkPipelineCache pipelineCache,
+                                uint32_t createInfoCount,
+                                const VkGraphicsPipelineCreateInfo* pCreateInfos,
+                                const VkAllocationCallbacks* pAllocator,
+                                VkPipeline* pPipelines)
+{
+   VK_FROM_HANDLE(wrapper_device, device, _device);
+   bool needs_patch = !device->physical->base_supported_extensions.EXT_depth_clip_enable;
+
+   if (!needs_patch || createInfoCount == 0) {
+      return device->dispatch_table.CreateGraphicsPipelines(device->dispatch_handle,
+         pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
+   }
+
+   VkGraphicsPipelineCreateInfo *infos = malloc(sizeof(VkGraphicsPipelineCreateInfo) * createInfoCount);
+   VkPipelineRasterizationStateCreateInfo *rast_states = malloc(sizeof(VkPipelineRasterizationStateCreateInfo) * createInfoCount);
+   uint8_t *copy_bufs = calloc(createInfoCount, 1024);
+
+   for (uint32_t i = 0; i < createInfoCount; i++) {
+      infos[i] = pCreateInfos[i];
+      if (infos[i].pRasterizationState) {
+         rast_states[i] = *infos[i].pRasterizationState;
+         const VkBaseInStructure *node = (const VkBaseInStructure *)rast_states[i].pNext;
+         const VkPipelineRasterizationDepthClipStateCreateInfoEXT *clip_info = NULL;
+
+         while (node) {
+            if (node->sType == VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_DEPTH_CLIP_STATE_CREATE_INFO_EXT) {
+               clip_info = (const VkPipelineRasterizationDepthClipStateCreateInfoEXT *)node;
+               break;
+            }
+            node = node->pNext;
+         }
+
+         if (clip_info) {
+            /* Map D3D depth-clip to Vulkan depth-clamp:
+             * depthClipEnable == TRUE -> depthClampEnable = FALSE (clipped by rasterizer)
+             * depthClipEnable == FALSE -> depthClampEnable = TRUE (clamped, not clipped) */
+            rast_states[i].depthClampEnable = !clip_info->depthClipEnable;
+
+            /* Filter out the extension struct from pNext */
+            if (rast_states[i].pNext == (const void *)clip_info) {
+               rast_states[i].pNext = clip_info->pNext;
+            } else {
+               uint8_t *buf = &copy_bufs[i * 1024];
+               uint32_t offset = 0;
+               VkBaseInStructure *prev_copied = NULL;
+               const VkBaseInStructure *curr = (const VkBaseInStructure *)infos[i].pRasterizationState->pNext;
+
+               while (curr) {
+                  if (curr == (const VkBaseInStructure *)clip_info) {
+                     if (prev_copied)
+                        prev_copied->pNext = curr->pNext;
+                     break;
+                  }
+                  if (offset + 256 <= 1024) {
+                     VkBaseInStructure *copied = (VkBaseInStructure *)(buf + offset);
+                     memcpy(copied, curr, 256);
+                     if (prev_copied)
+                        prev_copied->pNext = (const void *)copied;
+                     else
+                        rast_states[i].pNext = (const void *)copied;
+                     prev_copied = copied;
+                     offset += 256;
+                  }
+                  curr = curr->pNext;
+               }
+            }
+            infos[i].pRasterizationState = &rast_states[i];
+         }
+      }
+   }
+
+   VkResult result = device->dispatch_table.CreateGraphicsPipelines(device->dispatch_handle,
+      pipelineCache, createInfoCount, infos, pAllocator, pPipelines);
+
+   free(copy_bufs);
+   free(rast_states);
+   free(infos);
+   return result;
 }
 
 static VkResult
