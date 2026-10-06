@@ -346,9 +346,8 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
        * wrapper_GetPhysicalDeviceProperties2; the entrypoints are emulated in
        * wrapper_device.c. */
       {
-         bool is_d3d = strstr(engine_name, "DXVK") || strstr(engine_name, "vkd3d");
-         if (is_d3d && !pdevice->base_supported_extensions.KHR_push_descriptor) {
-            WRAPPER_LOG(info, "Faking VK_KHR_push_descriptor (base driver lacks it)");
+         if (!pdevice->base_supported_extensions.KHR_push_descriptor) {
+            WRAPPER_LOG(info, "Exposing and emulating VK_KHR_push_descriptor (base driver lacks it)");
             pdevice->vk.supported_extensions.KHR_push_descriptor = true;
          }
       }
